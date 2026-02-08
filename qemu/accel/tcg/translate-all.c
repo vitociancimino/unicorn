@@ -747,7 +747,7 @@ static void page_lock_pair(struct uc_struct *uc, PageDesc **ret_p1, tb_page_addr
    indicated, this is constrained by the range of direct branches on the
    host cpu, as used by the TCG implementation of goto_tb.  */
 #if defined(__x86_64__)
-# define MAX_CODE_GEN_BUFFER_SIZE  (2 * GiB)
+# define MAX_CODE_GEN_BUFFER_SIZE  (512 * MiB)
 #elif defined(__sparc__)
 # define MAX_CODE_GEN_BUFFER_SIZE  (2 * GiB)
 #elif defined(__powerpc64__)
@@ -775,7 +775,7 @@ static void page_lock_pair(struct uc_struct *uc, PageDesc **ret_p1, tb_page_addr
  * Users running large scale system emulation may want to tweak their
  * runtime setup via the tb-size control on the command line.
  */
-#define DEFAULT_CODE_GEN_BUFFER_SIZE_1 (1 * GiB)
+#define DEFAULT_CODE_GEN_BUFFER_SIZE_1 (64 * MiB)
 #endif
 
 #define DEFAULT_CODE_GEN_BUFFER_SIZE \
@@ -995,7 +995,20 @@ static inline void *alloc_code_gen_buffer(struct uc_struct *uc)
         return NULL;
     }
 
-    return VirtualAlloc(NULL, size, MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+    // --- MODIFICA INIZIO ---
+    // Alloca con COMMIT immediato invece di solo RESERVE
+    uint8_t *final_buf = (uint8_t *)VirtualAlloc(NULL, size, MEM_RESERVE | MEM_COMMIT, PAGE_EXECUTE_READWRITE);
+    
+    if (final_buf) {
+        // Forza Windows a mappare le pagine RAM ora, una per una
+        volatile uint8_t *p = (volatile uint8_t *)final_buf;
+        for (size_t i = 0; i < size; i += 4096) {
+            p[i] = 0; // "Tocca" la pagina
+        }
+    }
+    
+    return final_buf;
+    // --- MODIFICA FINE ---
 }
 void free_code_gen_buffer(struct uc_struct *uc)
 {
